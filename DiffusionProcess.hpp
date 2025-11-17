@@ -4,57 +4,61 @@ This class describes a stochastic process governed by dx(t) = mu(t, x(t))dt + si
 ***************************************************************************************************/
 #pragma once
 
+#include <memory>
+#include <cassert>
+
 typedef double Time;
 typedef double Rate;
 
-class DiffusionProcess
-{
+class DiffusionProcess {
 public:
-    DiffusionProcess(double x0) : x0_(x0) {}
-    virtual ~DiffusionProcess() {}
+    using ptr = std::unique_ptr<DiffusionProcess>;
+    explicit DiffusionProcess(double x0) noexcept : x0_(x0) {}
+    virtual ~DiffusionProcess() = default;
 
-    double x0() const { return x0_; }
+    double x0() const noexcept { return x0_; }
 
-    // returns the drift part of the equation, i.e. mu(t, x_t)
-    virtual double drift(Time t, double x) const = 0;
+    virtual double drift(Time t, double x) const noexcept = 0;
+    virtual double diffusion(Time t, double x) const noexcept = 0;
 
-    // returns the diffusion part of the equation, i.e. sigma(t,x_t)
-    virtual double diffusion(Time t, double x) const = 0;
-
-    // returns the expectation of the process after a time interval
-    // returns E(x_{t_0 + delta t} | x_{t_0} = x_0) since it is Markov.
-    // By default, it returns the Euler approximation defined by
-    // x_0 + mu(t_0, x_0) delta t.
-    virtual double expectation(Time t0, double x0, Time dt) const {
+    virtual double expectation(Time t0, double x0, Time dt) const noexcept {
         return x0 + drift(t0, x0) * dt;
     }
-
-    // returns the variance of the process after a time interval
-    // returns Var(x_{t_0 + Delta t} | x_{t_0} = x_0).
-    // By default, it returns the Euler approximation defined by
-    // sigma(t_0, x_0)^2 \Delta t .
-    virtual double variance(Time t0, double x0, Time dt) const {
-        double sigma = diffusion(t0, x0);
-        return sigma * sigma * dt;
+    virtual double variance(Time t0, double x0, Time dt) const noexcept {
+        double s = diffusion(t0, x0);
+        return s * s * dt;
     }
+
+    virtual ptr clone() const = 0;
 
 private:
     double x0_;
 };
 
-class BlackScholesProcess : public DiffusionProcess
-{
+class BlackScholesProcess : public DiffusionProcess {
 public:
-    BlackScholesProcess(Rate rate, double volatility, double s0 = 0.0)
-        : DiffusionProcess(s0), r_(rate), sigma_(volatility) {}
+    BlackScholesProcess(Rate r, double sigma, double s0)
+        : DiffusionProcess(std::log(s0)), r_(r), sigma_(sigma)
+    {
+        assert(s0 > 0.0 && "S0 must be positive");
+        assert(sigma_ >= 0.0 && "sigma must be non-negative");
+    }
 
-    double drift(Time t, double x) const {
+    // dY = (r - 0.5*sigma^2) dt + sigma dW
+    double drift(Time /*t*/, double /*y*/) const noexcept override {
         return r_ - 0.5 * sigma_ * sigma_;
     }
-
-    double diffusion(Time t, double x) const {
+    double diffusion(Time /*t*/, double /*y*/) const noexcept override {
         return sigma_;
     }
+
+    std::unique_ptr<DiffusionProcess> clone() const override {
+        return std::make_unique<BlackScholesProcess>(*this);
+    }
+
+    // accessors
+    double r() const noexcept { return r_; }
+    double sigma() const noexcept { return sigma_; }
 
 private:
     double r_, sigma_;
